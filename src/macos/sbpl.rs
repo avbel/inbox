@@ -19,7 +19,13 @@ pub fn generate_sbpl(rules: &RuleSet, deny_all: bool) -> String {
         lines.push("(allow default)".to_string());
     }
 
-    for rule in rules.rules() {
+    // Sort by path component count ascending so parent paths come before child paths.
+    // SBPL is last-match-wins: a more-specific rule (deeper path) must appear AFTER
+    // the less-specific rule it overrides (e.g. --hide /dir before --rw /dir/sub).
+    let mut sorted_rules: Vec<_> = rules.rules().iter().collect();
+    sorted_rules.sort_by_key(|r| r.path.components().count());
+
+    for rule in sorted_rules {
         let path = rule.path.to_string_lossy();
         match &rule.mode {
             Mode::Ro => {
@@ -35,9 +41,13 @@ pub fn generate_sbpl(rules: &RuleSet, deny_all: bool) -> String {
             // path comes first in the rule list, then this allow overrides it for the
             // subpath. In allow-all mode the allow is redundant when no parent restriction
             // exists, but harmless.
+            //
+            // Use explicit operation names rather than file-read*/file-write* wildcards:
+            // SBPL wildcards in allow rules do NOT override specific-operation deny rules
+            // (e.g. (allow file-read* ...) does not override (deny file-read-metadata ...)).
             Mode::Rw | Mode::Ephemeral => {
                 lines.push(format!(
-                    "(allow file-read* file-write* (subpath \"{path}\"))"
+                    "(allow file-read-metadata file-read-data file-write* (subpath \"{path}\"))"
                 ));
             }
         }
@@ -100,34 +110,35 @@ mod tests {
         // Ephemeral always gets an explicit allow so it can override a parent Ro rule.
         let rs = ruleset(vec![rule("/home/user/tmp", Mode::Ephemeral)]);
         let sbpl = generate_sbpl(&rs, false);
-        assert!(sbpl.contains("(allow file-read* file-write* (subpath \"/home/user/tmp\"))"));
+        assert!(sbpl.contains("(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/tmp\"))"));
     }
 
     #[test]
     fn rw_in_deny_all_produces_allow() {
         let rs = ruleset(vec![rule("/home/user/project", Mode::Rw)]);
         let sbpl = generate_sbpl(&rs, true);
-        assert!(sbpl.contains("(allow file-read* file-write* (subpath \"/home/user/project\"))"));
+        assert!(sbpl.contains("(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/project\"))"));
     }
 
     #[test]
-    fn ro_parent_rw_subdir_allows_subdir_writes() {
-        // --ro /dir --rw /dir/sub: deny on /dir must come before allow on /dir/sub
-        // so the allow wins for /dir/sub (SBPL last-match-wins).
+    fn parent_rule_always_precedes_child_rule_regardless_of_insertion_order() {
+        // Regardless of which order rules are inserted, the parent path's rule must
+        // appear before the child path's rule in the SBPL output (SBPL last-match-wins).
+        // Case: Hide parent inserted AFTER Rw child — sorting must fix the order.
         let rs = ruleset(vec![
-            rule("/home/user/dir", Mode::Ro),
-            rule("/home/user/dir/sub", Mode::Rw),
+            rule("/home/user/dir/sub", Mode::Rw), // inserted first (deeper)
+            rule("/home/user/dir", Mode::Hide),   // inserted second (shallower)
         ]);
         let sbpl = generate_sbpl(&rs, false);
-        let deny_pos = sbpl
-            .find("(deny file-write* (subpath \"/home/user/dir\"))")
-            .expect("missing deny rule for parent");
+        let hide_pos = sbpl
+            .find("(deny file-read-data (subpath \"/home/user/dir\"))")
+            .expect("missing hide deny for parent");
         let allow_pos = sbpl
-            .find("(allow file-read* file-write* (subpath \"/home/user/dir/sub\"))")
+            .find("(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/dir/sub\"))")
             .expect("missing allow rule for subdir");
         assert!(
-            deny_pos < allow_pos,
-            "deny rule must appear before allow rule so allow wins for subdir"
+            hide_pos < allow_pos,
+            "parent deny must appear before child allow so child allow wins"
         );
     }
 }
