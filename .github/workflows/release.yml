@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            suffix: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            suffix: linux-arm64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: zip
+            suffix: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install aarch64 cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure aarch64 linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'TOML'
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          TOML
+
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml && rm -f Cargo.toml.bak
+
+      - name: fmt check
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: test
+        run: cargo test --all-features
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../inbox-${{ matrix.suffix }}.tar.gz inbox
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        run: |
+          cd target/${{ matrix.target }}/release
+          zip ../../../inbox-${{ matrix.suffix }}.zip inbox
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inbox-${{ matrix.suffix }}
+          path: inbox-${{ matrix.suffix }}.${{ matrix.archive }}
+
+  release:
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: sha256sum inbox-*.* > checksums-sha256.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            inbox-*.*
+            checksums-sha256.txt
+          generate_release_notes: true
+
+  update-homebrew:
+    needs: release
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" \
+            --repo avbel/inbox \
+            --pattern checksums-sha256.txt
+
+          MACOS_ARM64=$(grep 'inbox-macos-arm64.zip' checksums-sha256.txt | awk '{print $1}')
+          LINUX_X64=$(grep 'inbox-linux-x64.tar.gz' checksums-sha256.txt | awk '{print $1}')
+          LINUX_ARM64=$(grep 'inbox-linux-arm64.tar.gz' checksums-sha256.txt | awk '{print $1}')
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/avbel/homebrew-tap.git" /tmp/homebrew-tap
+
+          sed -i "s/version \".*\"/version \"$VERSION\"/" /tmp/homebrew-tap/Formula/inbox.rb
+
+          awk -v new="$MACOS_ARM64" '
+            /sha256/ { count++ }
+            count == 1 && /sha256/ { sub(/"[a-f0-9]{64}"/, "\"" new "\""); count = -999 }
+            { print }
+          ' /tmp/homebrew-tap/Formula/inbox.rb > /tmp/formula.tmp && mv /tmp/formula.tmp /tmp/homebrew-tap/Formula/inbox.rb
+
+          awk -v new="$LINUX_X64" '
+            /sha256/ { count++ }
+            count == 2 && /sha256/ { sub(/"[a-f0-9]{64}"/, "\"" new "\""); count = -999 }
+            { print }
+          ' /tmp/homebrew-tap/Formula/inbox.rb > /tmp/formula.tmp && mv /tmp/formula.tmp /tmp/homebrew-tap/Formula/inbox.rb
+
+          awk -v new="$LINUX_ARM64" '
+            /sha256/ { count++ }
+            count == 3 && /sha256/ { sub(/"[a-f0-9]{64}"/, "\"" new "\""); count = -999 }
+            { print }
+          ' /tmp/homebrew-tap/Formula/inbox.rb > /tmp/formula.tmp && mv /tmp/formula.tmp /tmp/homebrew-tap/Formula/inbox.rb
+
+          cd /tmp/homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/inbox.rb
+          git commit -m "Update inbox to $VERSION"
+          git push
