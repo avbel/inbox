@@ -78,6 +78,11 @@ impl RuleSet {
     pub fn has_ephemeral(&self) -> bool {
         self.rules.iter().any(|r| r.mode == Mode::Ephemeral)
     }
+
+    #[cfg(test)]
+    pub fn from_rules(rules: Vec<Rule>) -> Self {
+        Self { rules }
+    }
 }
 
 #[allow(dead_code)]
