@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::error::{InboxError, Result};
 use crate::rules::Mode;
+use std::cell::RefCell;
 
 #[allow(dead_code)]
 pub fn resolve_profile(
@@ -8,7 +9,7 @@ pub fn resolve_profile(
     config: &Config,
     visiting: &mut Vec<String>,
 ) -> Result<Vec<(String, Mode)>> {
-    let warnings = std::cell::RefCell::new(vec![]);
+    let warnings = RefCell::new(vec![]);
     let patterns = resolve_profile_with_warnings(name, config, visiting, &warnings)?;
     for w in warnings.borrow().iter() {
         eprintln!("warning: {w}");
@@ -21,10 +22,14 @@ pub fn resolve_profile_with_warnings(
     name: &str,
     config: &Config,
     visiting: &mut Vec<String>,
-    warnings: &std::cell::RefCell<Vec<String>>,
+    warnings: &RefCell<Vec<String>>,
 ) -> Result<Vec<(String, Mode)>> {
-    if visiting.contains(&name.to_string()) {
-        return Err(InboxError::ProfileCycle(visiting.join(" → ")));
+    if visiting.iter().any(|v| v == name) {
+        return Err(InboxError::ProfileCycle(format!(
+            "{} → {}",
+            visiting.join(" → "),
+            name
+        )));
     }
 
     let profile = config
