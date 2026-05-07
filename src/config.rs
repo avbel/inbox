@@ -24,7 +24,7 @@ pub struct ProfileDef {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Config {
     pub settings: Settings,
     pub profiles: HashMap<String, ProfileDef>,
