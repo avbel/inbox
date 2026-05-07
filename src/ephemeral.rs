@@ -81,7 +81,8 @@ impl EphemeralManager {
     pub fn after_review(&mut self, kept: &[PathBuf]) -> Result<()> {
         self.after_called = true;
         self.restore()?;
-        let _ = kept; // kept paths will be re-applied from DiffItem data
+        // TODO(Task 9): re-apply kept paths from DiffItem data once review TUI is implemented
+        let _ = kept;
         let _ = std::fs::remove_dir_all(self.snapshot_root.join(&self.uuid));
         Ok(())
     }
@@ -159,7 +160,7 @@ pub fn restore_orphan(snapshot_root: &Path, uuid: &str) -> Result<()> {
         snapshot_root: snapshot_root.to_path_buf(),
         uuid: uuid.to_string(),
         paths: manifest.paths,
-        after_called: false,
+        after_called: true, // prevent Drop from running a second restore
     };
     mgr.restore()?;
     let _ = std::fs::remove_dir_all(snapshot_root.join(uuid));
