@@ -6,6 +6,9 @@ use crate::error::Result;
 pub enum DiffKind {
     New,
     Modified,
+    // TODO: Deleted is defined for future use — compute_diff does not yet detect
+    // files removed from ephemeral paths (a snapshot walk would be needed to
+    // find entries present in the snapshot but absent from the real path).
     #[allow(dead_code)]
     Deleted,
 }
@@ -30,6 +33,11 @@ pub fn compute_diff(real_paths: &[PathBuf], snapshot_root: &Path) -> Result<Vec<
 }
 
 fn collect_diff_items(
+    // `_base` is unused: the snapshot mirrors absolute paths (see
+    // `EphemeralManager::snapshot_path_for`, which joins `snapshot_dir` with
+    // the absolute path stripped of its leading `/`). We therefore derive the
+    // snapshot location from `current` directly, not relative to `_base`. The
+    // parameter is retained for API symmetry / future relative-path support.
     _base: &Path,
     current: &Path,
     snapshot_root: &Path,
@@ -41,6 +49,9 @@ fn collect_diff_items(
             collect_diff_items(_base, &entry.path(), snapshot_root, items)?;
         }
     } else {
+        // Mirror the absolute-path layout used by EphemeralManager when it
+        // built the snapshot: strip the leading `/` so the snapshot root is
+        // the implicit filesystem root.
         let rel = current.strip_prefix("/").unwrap_or(current);
         let snap_path = snapshot_root.join(rel);
 
@@ -75,18 +86,10 @@ pub fn show_review_tui(exit_code: i32, mut items: Vec<DiffItem>) -> Result<Vec<P
     }
 
     use crossterm::{
-        event::{self, Event, KeyCode},
         execute,
         terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     };
-    use ratatui::{
-        Terminal,
-        backend::CrosstermBackend,
-        layout::{Constraint, Direction, Layout},
-        style::{Color, Modifier, Style},
-        text::{Line, Span},
-        widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    };
+    use ratatui::{Terminal, backend::CrosstermBackend};
 
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
@@ -94,10 +97,37 @@ pub fn show_review_tui(exit_code: i32, mut items: Vec<DiffItem>) -> Result<Vec<P
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Capture the result so cleanup runs unconditionally below — otherwise an
+    // error mid-loop would leave the user's terminal in raw mode + alternate
+    // screen.
+    let result = run_tui(&mut terminal, &mut items, exit_code);
+
+    // Always restore terminal, even if the TUI errored. We deliberately ignore
+    // cleanup errors via `let _ =` so the original error from `result` (if any)
+    // is what propagates to the caller.
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+
+    result
+}
+
+fn run_tui(
+    terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
+    items: &mut [DiffItem],
+    exit_code: i32,
+) -> Result<Vec<PathBuf>> {
+    use crossterm::event::{self, Event, KeyCode};
+    use ratatui::{
+        layout::{Constraint, Direction, Layout},
+        style::{Color, Modifier, Style},
+        text::{Line, Span},
+        widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    };
+
     let mut list_state = ListState::default();
     list_state.select(Some(0));
 
-    let result = loop {
+    loop {
         terminal.draw(|f| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -141,13 +171,13 @@ pub fn show_review_tui(exit_code: i32, mut items: Vec<DiffItem>) -> Result<Vec<P
 
         if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Char('q') => break vec![],
+                KeyCode::Char('q') => return Ok(vec![]),
                 KeyCode::Enter => {
-                    break items
+                    return Ok(items
                         .iter()
                         .filter(|i| i.selected)
                         .map(|i| i.real_path.clone())
-                        .collect();
+                        .collect());
                 }
                 KeyCode::Char(' ') => {
                     if let Some(i) = list_state.selected() {
@@ -173,12 +203,7 @@ pub fn show_review_tui(exit_code: i32, mut items: Vec<DiffItem>) -> Result<Vec<P
                 _ => {}
             }
         }
-    };
-
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-
-    Ok(result)
+    }
 }
 
 #[cfg(test)]
