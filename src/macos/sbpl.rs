@@ -3,6 +3,9 @@ use crate::rules::{Mode, RuleSet};
 /// Generate an SBPL profile string from the given rule set.
 /// `deny_all`: if true, start with `(deny default)` (--review-ephemeral mode).
 ///             if false, start with `(allow default)` (normal mode).
+/// Note: paths with non-UTF-8 bytes are replaced with U+FFFD by to_string_lossy;
+/// in practice macOS paths are always valid UTF-8.
+#[must_use = "SBPL profile must be passed to sandbox-exec"]
 pub fn generate_sbpl(rules: &RuleSet, deny_all: bool) -> String {
     let mut lines = vec!["(version 1)".to_string()];
 
