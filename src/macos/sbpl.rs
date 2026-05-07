@@ -30,19 +30,15 @@ pub fn generate_sbpl(rules: &RuleSet, deny_all: bool) -> String {
                 lines.push(format!("(deny file-read-data (subpath \"{path}\"))"));
                 lines.push(format!("(deny file-write* (subpath \"{path}\"))"));
             }
-            Mode::Rw if deny_all => {
-                lines.push(format!(
-                    "(allow file-read* file-write* (subpath \"{path}\"))"
-                ));
-            }
-            Mode::Ephemeral if deny_all => {
-                // Ephemeral needs full access in SBPL; snapshot-restore handles protection
-                lines.push(format!(
-                    "(allow file-read* file-write* (subpath \"{path}\"))"
-                ));
-            }
+            // Always emit explicit allow for Rw and Ephemeral so they can override a
+            // parent Ro or Hide rule. SBPL is last-match-wins: the deny from a parent
+            // path comes first in the rule list, then this allow overrides it for the
+            // subpath. In allow-all mode the allow is redundant when no parent restriction
+            // exists, but harmless.
             Mode::Rw | Mode::Ephemeral => {
-                // In allow-all mode: rw and ephemeral need no SBPL rule
+                lines.push(format!(
+                    "(allow file-read* file-write* (subpath \"{path}\"))"
+                ));
             }
         }
     }
@@ -100,10 +96,11 @@ mod tests {
     }
 
     #[test]
-    fn ephemeral_path_absent_from_sbpl() {
+    fn ephemeral_path_produces_allow_rule() {
+        // Ephemeral always gets an explicit allow so it can override a parent Ro rule.
         let rs = ruleset(vec![rule("/home/user/tmp", Mode::Ephemeral)]);
         let sbpl = generate_sbpl(&rs, false);
-        assert!(!sbpl.contains("/home/user/tmp"));
+        assert!(sbpl.contains("(allow file-read* file-write* (subpath \"/home/user/tmp\"))"));
     }
 
     #[test]
@@ -111,5 +108,26 @@ mod tests {
         let rs = ruleset(vec![rule("/home/user/project", Mode::Rw)]);
         let sbpl = generate_sbpl(&rs, true);
         assert!(sbpl.contains("(allow file-read* file-write* (subpath \"/home/user/project\"))"));
+    }
+
+    #[test]
+    fn ro_parent_rw_subdir_allows_subdir_writes() {
+        // --ro /dir --rw /dir/sub: deny on /dir must come before allow on /dir/sub
+        // so the allow wins for /dir/sub (SBPL last-match-wins).
+        let rs = ruleset(vec![
+            rule("/home/user/dir", Mode::Ro),
+            rule("/home/user/dir/sub", Mode::Rw),
+        ]);
+        let sbpl = generate_sbpl(&rs, false);
+        let deny_pos = sbpl
+            .find("(deny file-write* (subpath \"/home/user/dir\"))")
+            .expect("missing deny rule for parent");
+        let allow_pos = sbpl
+            .find("(allow file-read* file-write* (subpath \"/home/user/dir/sub\"))")
+            .expect("missing allow rule for subdir");
+        assert!(
+            deny_pos < allow_pos,
+            "deny rule must appear before allow rule so allow wins for subdir"
+        );
     }
 }

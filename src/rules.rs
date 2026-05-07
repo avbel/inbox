@@ -40,6 +40,8 @@ impl RuleSet {
                     .filter_map(|r| r.ok())
                     .collect::<Vec<_>>();
                 for path in matched {
+                    // Canonicalize so SBPL rules match kernel paths (e.g. /tmp → /private/tmp on macOS)
+                    let path = std::fs::canonicalize(&path).unwrap_or(path);
                     rules.push(Rule {
                         path,
                         mode: mode.clone(),
@@ -48,6 +50,8 @@ impl RuleSet {
             } else {
                 let path = PathBuf::from(&pattern);
                 if path.exists() {
+                    // Canonicalize so SBPL rules match kernel paths (e.g. /tmp → /private/tmp on macOS)
+                    let path = std::fs::canonicalize(&path).unwrap_or(path);
                     rules.push(Rule {
                         path,
                         mode: mode.clone(),
@@ -137,6 +141,26 @@ mod tests {
         let pattern = format!("{}/**/.env", dir.path().display());
         let rules = RuleSet::from_patterns(&[(pattern, Mode::Hide)]).unwrap();
         assert_eq!(rules.rules().len(), 2);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn symlink_path_is_canonicalized() {
+        // On macOS /tmp is a symlink to /private/tmp. Rules must store the
+        // canonical path so SBPL patterns match what the kernel uses.
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("file.txt");
+        fs::write(&f, "").unwrap();
+
+        // Create a symlink pointing at the real file
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&f, &link).unwrap();
+
+        let rules =
+            RuleSet::from_patterns(&[(link.to_str().unwrap().to_string(), Mode::Ro)]).unwrap();
+        assert_eq!(rules.rules().len(), 1);
+        // Rule path should be the real file, not the symlink
+        assert_eq!(rules.rules()[0].path, std::fs::canonicalize(&f).unwrap());
     }
 
     #[test]
