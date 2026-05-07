@@ -7,6 +7,7 @@ use std::os::unix::process::CommandExt;
 /// Returns the exit code.
 #[cfg(target_os = "macos")]
 pub fn spawn_sandboxed_macos(sbpl_profile: &str, cmd: &str) -> Result<i32> {
+    // SAFETY: isatty is async-signal-safe and has no preconditions on STDIN_FILENO.
     let is_tty = unsafe { nix::libc::isatty(nix::libc::STDIN_FILENO) } == 1;
 
     if is_tty {
@@ -39,11 +40,15 @@ fn spawn_with_pty(sbpl_profile: &str, cmd: &str) -> Result<i32> {
     nix::sys::termios::cfmakeraw(&mut raw);
     nix::sys::termios::tcsetattr(&pty.master, nix::sys::termios::SetArg::TCSANOW, &raw)?;
 
+    // SAFETY: single-threaded at this point; no async-signal-unsafe operations
+    // occur between fork and exec in the child path.
     match unsafe { fork() }? {
         ForkResult::Child => {
             setsid()?;
+            // SAFETY: slave_fd is a valid open fd returned by openpty above.
+            // TIOCSCTTY sets the calling process's controlling terminal.
             unsafe {
-                nix::libc::ioctl(slave_fd, nix::libc::TIOCSCTTY as u64, 0);
+                nix::libc::ioctl(slave_fd, nix::libc::TIOCSCTTY as nix::libc::c_ulong, 0);
             }
             dup2(slave_fd, 0)?;
             dup2(slave_fd, 1)?;
@@ -75,12 +80,16 @@ fn bridge_pty(
     use nix::poll::{PollFd, PollFlags, poll};
     use std::os::unix::io::FromRawFd;
 
+    // SAFETY: master_fd is valid, open, and exclusively owned here — the child
+    // closed it and the slave_fd was closed in the parent before this call.
     let mut master = unsafe { std::fs::File::from_raw_fd(master_fd) };
     let mut stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let mut buf = [0u8; 4096];
 
     let stdin_fd = 0i32;
+    // SAFETY: fd 0 (stdin) is open for the lifetime of this function and not
+    // aliased mutably elsewhere in this single-threaded context.
     let stdin_borrowed = unsafe { std::os::unix::io::BorrowedFd::borrow_raw(stdin_fd) };
     let orig_stdin = nix::sys::termios::tcgetattr(stdin_borrowed)?;
     let mut raw_stdin = orig_stdin.clone();
@@ -94,6 +103,7 @@ fn bridge_pty(
     setup_sigwinch(master_fd);
 
     let exit_code = loop {
+        // SAFETY: both fds remain open and valid throughout the loop.
         let mut fds = [
             PollFd::new(
                 unsafe { std::os::unix::io::BorrowedFd::borrow_raw(master_fd) },
@@ -159,6 +169,7 @@ fn bridge_pty(
 fn setup_sigwinch(master_fd: std::os::unix::io::RawFd) {
     use nix::sys::signal::{SigHandler, Signal, signal};
     let _ = master_fd;
+    // SAFETY: handle_sigwinch only calls async-signal-safe operations.
     unsafe {
         signal(Signal::SIGWINCH, SigHandler::Handler(handle_sigwinch)).ok();
     }
@@ -166,5 +177,5 @@ fn setup_sigwinch(master_fd: std::os::unix::io::RawFd) {
 
 #[cfg(target_os = "macos")]
 extern "C" fn handle_sigwinch(_: nix::libc::c_int) {
-    // Forward SIGWINCH to child — updates PTY window size via TIOCSWINSZ
+    // TODO: forward window size to child via TIOCSWINSZ (currently a no-op)
 }
