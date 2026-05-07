@@ -24,6 +24,7 @@ pub struct ProfileDef {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct Config {
     pub settings: Settings,
     pub profiles: HashMap<String, ProfileDef>,
@@ -38,14 +39,16 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Ok(Self {
-                settings: Settings::default(),
-                profiles: HashMap::new(),
-            });
-        }
-
-        let content = std::fs::read_to_string(path)?;
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    settings: Settings::default(),
+                    profiles: HashMap::new(),
+                });
+            }
+            Err(e) => return Err(e.into()),
+        };
         let raw: HashMap<String, serde_yaml::Value> = serde_yaml::from_str(&content)?;
 
         let mut settings = Settings::default();
