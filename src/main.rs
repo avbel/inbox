@@ -141,6 +141,8 @@ fn setup_sigterm() {
 }
 
 extern "C" fn handle_sigterm(_: nix::libc::c_int) {
-    // EphemeralManager Drop will run when process exits via drop
+    // Note: process::exit does NOT run Drop — EphemeralManager cleanup is skipped.
+    // The snapshot manifest was written before the command ran; use
+    // `inbox restore <uuid>` to recover any orphaned snapshots after a SIGTERM.
     std::process::exit(1);
 }
