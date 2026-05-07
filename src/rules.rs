@@ -29,7 +29,10 @@ impl RuleSet {
         let mut rules = Vec::new();
 
         for (raw, mode) in patterns {
-            let pattern = raw.replace("~/", &format!("{}/", home.display()));
+            let pattern = match raw.strip_prefix("~/") {
+                Some(rest) => format!("{}/{}", home.display(), rest),
+                None => raw.clone(),
+            };
 
             if is_glob(&pattern) {
                 let matched = glob::glob(&pattern)
