@@ -1,8 +1,8 @@
 use crate::error::{InboxError, Result};
 use crate::rules::{Mode, RuleSet};
 use landlock::{
-    ABI, Access, AccessFs, BitFlags, Compatible, PathBeneath, PathFd, Ruleset, RulesetAttr,
-    RulesetCreatedAttr, RulesetStatus,
+    ABI, Access, AccessFs, BitFlags, CompatLevel, Compatible, PathBeneath, PathFd, Ruleset,
+    RulesetAttr, RulesetCreatedAttr, RulesetStatus,
 };
 use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::{ForkResult, fork};
@@ -87,7 +87,7 @@ fn apply_landlock(rules: &RuleSet, deny_all: bool) -> Result<()> {
         .map_err(|e| InboxError::Io(std::io::Error::other(e.to_string())))?
         .create()
         .map_err(|e| InboxError::Io(std::io::Error::other(e.to_string())))?
-        .set_best_effort(true);
+        .set_compatibility(CompatLevel::BestEffort);
 
     if !deny_all {
         // Allow-all baseline: grant full access to the root.

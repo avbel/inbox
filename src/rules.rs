@@ -83,7 +83,7 @@ impl RuleSet {
         self.rules.iter().any(|r| r.mode == Mode::Ephemeral)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "macos"))]
     pub fn from_rules(rules: Vec<Rule>) -> Self {
         Self { rules }
     }

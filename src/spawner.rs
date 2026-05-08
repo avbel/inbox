@@ -1,6 +1,10 @@
+#[cfg(target_os = "macos")]
 use crate::error::Result;
+#[cfg(target_os = "macos")]
 use nix::sys::wait::{WaitStatus, waitpid};
+#[cfg(target_os = "macos")]
 use nix::unistd::{ForkResult, fork};
+#[cfg(target_os = "macos")]
 use std::os::unix::process::CommandExt;
 
 /// Spawn a command, optionally through a PTY if stdin is a terminal.
