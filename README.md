@@ -68,18 +68,21 @@ settings:
 
 untrusted:
   ro:
-    - ~/.ssh
-    - ~/.gnupg
+    - ~/
   hide:
+    - ~/.ssh
+    - ~/.config
     - ~/.aws
     - "**/.env"
+    - "**/.env.*"
+    - "**/*.config"
   ephemeral:
     - ~/.zshrc
 
 ai-agent:
   based_on: untrusted
   rw:
-    - ~/project
+    - ~/projects
 ```
 
 ## Profile inheritance
