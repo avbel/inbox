@@ -80,8 +80,7 @@ untrusted:
     - "**/*.config"
   ephemeral:
     - ~/.zsh*
-    - ~/.cache 
-
+  
 ai-agent:
   based_on: untrusted
   rw:
