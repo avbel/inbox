@@ -1,6 +1,6 @@
 # inbox
 
-<p align="center"><img src="assets/logo.png" width="300" alt="inbox logo"></p>
+<p align="center"><img src="assets/logo.png" width="600" alt="inbox logo"></p>
 
 Run any command in a sandboxed filesystem environment. Control exactly which paths the command can read, write, or even see — without root privileges.
 
