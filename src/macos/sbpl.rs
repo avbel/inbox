@@ -110,14 +110,18 @@ mod tests {
         // Ephemeral always gets an explicit allow so it can override a parent Ro rule.
         let rs = ruleset(vec![rule("/home/user/tmp", Mode::Ephemeral)]);
         let sbpl = generate_sbpl(&rs, false);
-        assert!(sbpl.contains("(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/tmp\"))"));
+        assert!(sbpl.contains(
+            "(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/tmp\"))"
+        ));
     }
 
     #[test]
     fn rw_in_deny_all_produces_allow() {
         let rs = ruleset(vec![rule("/home/user/project", Mode::Rw)]);
         let sbpl = generate_sbpl(&rs, true);
-        assert!(sbpl.contains("(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/project\"))"));
+        assert!(sbpl.contains(
+            "(allow file-read-metadata file-read-data file-write* (subpath \"/home/user/project\"))"
+        ));
     }
 
     #[test]
