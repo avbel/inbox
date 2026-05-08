@@ -31,7 +31,7 @@ cargo install --path .
 ## Usage
 
 ```
-inbox [OPTIONS] "<command>"
+inbox [OPTIONS] -- <command> [args...]
 ```
 
 ## Flags
@@ -44,6 +44,8 @@ inbox [OPTIONS] "<command>"
 | `--rw <path>` | Explicitly writable | normal |
 | `--ephemeral <path>` | Fake writable — writes discarded on exit | success |
 | `--hide <path>` | Not visible | ENOENT |
+
+> **Quoting globs**: inbox expands globs itself. Always quote patterns containing `*` or `?` so the shell doesn't expand them first: `--hide '**/.env'`, `--ephemeral '~/.zsh*'`.
 
 ### Mode flags
 
@@ -77,11 +79,13 @@ untrusted:
     - "**/.env.*"
     - "**/*.config"
   ephemeral:
-    - ~/.zshrc
+    - ~/.zsh*
+    - ~/.cache 
 
 ai-agent:
   based_on: untrusted
   rw:
+    - ~/.claude
     - ~/projects
 ```
 
@@ -95,31 +99,31 @@ Escalation (e.g. `ro` → `rw`) emits a warning. Restriction (`rw` → `ro`) is 
 ### Run an app from an unknown source
 
 ```bash
-inbox --ro ~/.ssh --hide ~/.aws --hide "**/.env" --ephemeral ~/.zshrc "./installer.sh"
+inbox --ro ~/.ssh --hide ~/.aws --hide "**/.env" --ephemeral ~/.zshrc -- ./installer.sh
 ```
 
 ### Run an AI coding agent
 
 ```bash
-inbox --profile ai-agent "claude"
+inbox --profile ai-agent -- claude
 ```
 
 ### Audit a setup script — review what it changes before applying
 
 ```bash
-inbox --review-ephemeral --rw ~/project "bash setup.sh"
+inbox --review-ephemeral --rw ~/project -- bash setup.sh
 ```
 
 ### Install a global package without touching your dotfiles
 
 ```bash
-inbox --review-ephemeral --rw ~/.local/bin "npm install -g some-tool"
+inbox --review-ephemeral --rw ~/.local/bin -- npm install -g some-tool
 ```
 
 ### Protect credentials during a deploy
 
 ```bash
-inbox --ro ~/.ssh --hide ~/.aws --hide "**/.env" "make deploy"
+inbox --ro ~/.ssh --hide ~/.aws --hide "**/.env" -- make deploy
 ```
 
 ## License
