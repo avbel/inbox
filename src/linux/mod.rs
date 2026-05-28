@@ -247,7 +247,10 @@ fn probe_landlock_enforce() -> bool {
                 // Allow traversal to the test file's parent directory
                 let parent_fd = PathFd::new(tmp.path()).map_err(|_| ())?;
                 ruleset = ruleset
-                    .add_rule(PathBeneath::new(parent_fd, AccessFs::Execute | AccessFs::ReadDir))
+                    .add_rule(PathBeneath::new(
+                        parent_fd,
+                        AccessFs::Execute | AccessFs::ReadDir,
+                    ))
                     .map_err(|_| ())?;
 
                 // Read-only rule on the test file
@@ -491,7 +494,9 @@ fn apply_landlock(rules: &RuleSet, deny_all: bool) -> Result<()> {
         // Deduplicate parent dirs
         let mut seen = std::collections::HashSet::new();
         for dir in &parent_dirs {
-            if seen.insert(dir.clone()) && let Ok(fd) = PathFd::new(dir) {
+            if seen.insert(dir.clone())
+                && let Ok(fd) = PathFd::new(dir)
+            {
                 let dir_rule = PathBeneath::new(fd, dir_access);
                 ruleset = ruleset
                     .add_rule(dir_rule)
