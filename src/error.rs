@@ -19,8 +19,6 @@ pub enum InboxError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("kernel too old: need 5.13+, got {0}")]
-    KernelTooOld(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("YAML error: {0}")]
@@ -31,6 +29,8 @@ pub enum InboxError {
     Nix(#[from] nix::Error),
     #[error("glob pattern error: {0}")]
     Glob(String),
+    #[error("{0}")]
+    Unsupported(String),
 }
 
 pub type Result<T> = std::result::Result<T, InboxError>;

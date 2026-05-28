@@ -21,7 +21,34 @@ use error::Result;
 use rules::{Mode, RuleSet};
 use snapshot::resolve_snapshot_dir;
 
-fn main() -> Result<()> {
+/// Join command arguments with shell quoting to preserve argument boundaries.
+/// Without quoting, `inbox -- /bin/sh -c "exit 1"` becomes `/bin/sh -c exit 1`
+/// where `exit` gets no argument and `1` becomes `$0`.
+fn shell_quote_join(args: &[String]) -> String {
+    args.iter()
+        .map(|a| {
+            if a.is_empty()
+                || a.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '\\')
+            {
+                // Single-quote the argument, escaping embedded single quotes
+                let escaped = a.replace('\'', "'\\''");
+                format!("'{}'", escaped)
+            } else {
+                a.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // Handle recovery subcommands
@@ -86,7 +113,7 @@ fn main() -> Result<()> {
     }
 
     let rules = RuleSet::from_patterns(&patterns)?;
-    let cmd = cli.command.join(" ");
+    let cmd = shell_quote_join(&cli.command);
 
     // Set up EphemeralManager if needed
     let mut ephemeral_mgr = if rules.has_ephemeral() || cli.review_ephemeral {

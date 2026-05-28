@@ -17,6 +17,7 @@ pub struct Rule {
     pub mode: Mode,
 }
 
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct RuleSet {
     rules: Vec<Rule>,
